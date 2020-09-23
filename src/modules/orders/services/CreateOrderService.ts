@@ -20,13 +20,60 @@ interface IRequest {
 @injectable()
 class CreateOrderService {
   constructor(
+    @inject('OrdersRepository')
     private ordersRepository: IOrdersRepository,
+
+    @inject('ProductsRepository')
     private productsRepository: IProductsRepository,
+
+    @inject('CustomersRepository')
     private customersRepository: ICustomersRepository,
   ) {}
 
   public async execute({ customer_id, products }: IRequest): Promise<Order> {
-    // TODO
+    // Buscar todos os clientes
+    const customer = await this.customersRepository.findById(customer_id);
+
+    // Caso o cliente não exista
+    if (!customer) {
+      throw new AppError('Customer not found');
+    }
+
+    // Buscar todos os produtos por preço
+    const productsWithPrice = await this.productsRepository.findAllById(
+      products.map(product => ({ id: product.id })),
+    );
+
+    // Verifica se o produto existe
+    if (products.length !== productsWithPrice.length) {
+      throw new AppError('Product not found');
+    }
+
+    // Verifica a quantidade do produto existente
+    products.forEach(product => {
+      const databaseQuantity = productsWithPrice.find(
+        ({ id }) => id === product.id,
+      )?.quantity;
+
+      if ((databaseQuantity || 0) < product.quantity) {
+        throw new AppError('Quantity invalid');
+      }
+    });
+
+    // Cria uma venda
+    const order = await this.ordersRepository.create({
+      customer,
+      products: products.map(product => ({
+        product_id: product.id,
+        price:
+          productsWithPrice.find(({ id }) => id === product.id)?.price || 0,
+        quantity: product.quantity,
+      })),
+    });
+
+    await this.productsRepository.updateQuantity(products);
+
+    return order;
   }
 }
 
